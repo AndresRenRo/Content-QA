@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Content QA — KW Checker + Anchor Links</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F1923; }
+    textarea:focus { border-color: #2A3A4A !important; outline: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel" data-type="module">
+    const { useState, useMemo, useRef, useCallback } = React;
+
+    /* ═══════════════════════════════════════════
+       SHARED
+       ═══════════════════════════════════════════ */
+
+    const C = {
+      bg: "#0F1923",
+      surface: "#1A2735",
+      surfaceHover: "#223344",
+      accent: "#00D4AA",
+      accentDim: "rgba(0, 212, 170, 0.15)",
+      danger: "#FF6B6B",
+      dangerDim: "rgba(255, 107, 107, 0.12)",
+      warning: "#FFD93D",
+      warningDim: "rgba(255, 217, 61, 0.12)",
+      text: "#E8ECF1",
+      textMuted: "#7B8FA3",
+      border: "#2A3A4A",
+      inputBg: "#141E2A",
+    };
+
+    const FONT = "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace";
+    const FONT_DISPLAY = "'Space Grotesk', sans-serif";
+
+    /* ═══════════════════════════════════════════
+       KW CHECKER
+       ═══════════════════════════════════════════ */
+
+    function normalizeKw(str) {
+      return str.toLowerCase().normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ").trim();
+    }
+
+    function highlightMatches(text, keywords) {
+      if (!keywords.length || !text) return text;
+      const normalizedText = normalizeKw(text);
+      const ranges = [];
+      for (const kw of keywords) {
+        const nkw = normalizeKw(kw);
+        if (!nkw) continue;
+        let startIdx = 0;
+        while (true) {
+          const pos = normalizedText.indexOf(nkw, startIdx);
+          if (pos === -1) break;
+          ranges.push([pos, pos + nkw.length]);
+          startIdx = pos + 1;
+        }
+      }
+      if (!ranges.length) return text;
+      ranges.sort((a, b) => a[0] - b[0]);
+      const merged = [ranges[0]];
+      for (let i = 1; i < ranges.length; i++) {
+        const last = merged[merged.length - 1];
+        if (ranges[i][0] <= last[1]) last[1] = Math.max(last[1], ranges[i][1]);
+        else merged.push(ranges[i]);
+      }
+      const normToOrig = [];
+      let oi = 0;
+      for (let ni = 0; ni < normalizedText.length; ni++) {
+        while (oi < text.length && normalizeKw(text[oi]) === "" && normalizedText[ni] !== normalizeKw(text[oi])) oi++;
+        normToOrig.push(oi);
+        oi++;
+      }
+      normToOrig.push(text.length);
+      const parts = [];
+      let lastEnd = 0;
+      for (const [s, e] of merged) {
+        const origS = normToOrig[s] || 0;
+        const origE = normToOrig[e] !== undefined ? normToOrig[e] : text.length;
+        if (origS > lastEnd) parts.push({ text: text.slice(lastEnd, origS), hl: false });
+        parts.push({ text: text.slice(origS, origE), hl: true });
+        lastEnd = origE;
+      }
+      if (lastEnd < text.length) parts.push({ text: text.slice(lastEnd), hl: false });
+      return parts.map((p, i) =>
+        p.hl
+          ? React.createElement("mark", { key: i, style: { background: "rgba(0,212,170,0.25)", color: C.accent, borderRadius: 2, padding: "1px 0", fontWeight: 600 } }, p.text)
+          : React.createElement("span", { key: i }, p.text)
+      );
+    }
+
+    function KWChecker() {
+      const [kwInput, setKwInput] = useState("");
+      const [article, setArticle] = useState("");
+      const [showHighlights, setShowHighlights] = useState(true);
+
+      const keywords = useMemo(() => kwInput.split("\n").map(l => l.trim()).filter(Boolean), [kwInput]);
+
+      const results = useMemo(() => {
+        if (!keywords.length || !article.trim()) return null;
+        const na = normalizeKw(article);
+        return keywords.map(kw => {
+          const nkw = normalizeKw(kw);
+          return { kw, found: nkw ? na.includes(nkw) : false };
+        });
+      }, [keywords, article]);
+
+      const foundKws = results ? results.filter(r => r.found) : [];
+      const missingKws = results ? results.filter(r => !r.found) : [];
+      const total = results ? results.length : 0;
+      const pct = total ? Math.round((foundKws.length / total) * 100) : 0;
+
+      return (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 16, marginBottom: 20 }}>
+            {/* Keywords */}
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8 }}>
+                Keywords del cliente
+                {keywords.length > 0 && <span style={{ color: C.accent, marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>{keywords.length}</span>}
+              </label>
+              <textarea value={kwInput} onChange={e => setKwInput(e.target.value)}
+                placeholder={"una keyword por línea\nmejores casinos online\ntragamonedas gratis\nbono sin depósito..."}
+                spellCheck={false}
+                style={{ width: "100%", height: 340, background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: "inherit", fontSize: 13, padding: "14px 16px", resize: "none", outline: "none", lineHeight: 1.7 }}
+              />
+            </div>
+            {/* Article */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px" }}>Artículo</label>
+                {results && (
+                  <button onClick={() => setShowHighlights(!showHighlights)}
+                    style={{ background: showHighlights ? C.accentDim : "transparent", border: `1px solid ${showHighlights ? C.accent : C.border}`, color: showHighlights ? C.accent : C.textMuted, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                    {showHighlights ? "✦ highlights on" : "highlights off"}
+                  </button>
+                )}
+              </div>
+              {showHighlights && results && article.trim() ? (
+                <div style={{ width: "100%", height: 340, background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: 13, padding: "14px 16px", overflowY: "auto", lineHeight: 1.8, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {highlightMatches(article, foundKws.map(r => r.kw))}
+                </div>
+              ) : (
+                <textarea value={article} onChange={e => setArticle(e.target.value)}
+                  placeholder="Pega aquí el texto completo del artículo..."
+                  spellCheck={false}
+                  style={{ width: "100%", height: 340, background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: "inherit", fontSize: 13, padding: "14px 16px", resize: "none", outline: "none", lineHeight: 1.8 }}
+                />
+              )}
+            </div>
+          </div>
+
+          {results && (
+            <div>
+              {/* Progress */}
+              <div style={{ background: C.surface, borderRadius: 10, padding: "16px 20px", marginBottom: 16, border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
+                    <span><span style={{ color: C.accent, fontWeight: 700, fontSize: 20 }}>{foundKws.length}</span><span style={{ color: C.textMuted, marginLeft: 6 }}>encontradas</span></span>
+                    <span><span style={{ color: missingKws.length > 0 ? C.danger : C.accent, fontWeight: 700, fontSize: 20 }}>{missingKws.length}</span><span style={{ color: C.textMuted, marginLeft: 6 }}>faltan</span></span>
+                  </div>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger }}>{pct}%</span>
+                </div>
+                <div style={{ height: 6, background: C.inputBg, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger, borderRadius: 3, transition: "width 0.4s ease" }} />
+                </div>
+              </div>
+              {/* Lists */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {missingKws.length > 0 && (
+                  <div style={{ background: C.dangerDim, border: "1px solid rgba(255,107,107,0.25)", borderRadius: 10, padding: "16px 20px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: C.danger, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 12 }}>✕ Faltan</div>
+                    {missingKws.map((r, i) => <div key={i} style={{ padding: "6px 0", borderBottom: i < missingKws.length - 1 ? "1px solid rgba(255,107,107,0.1)" : "none", fontSize: 13, color: "#FFB4B4" }}>{r.kw}</div>)}
+                  </div>
+                )}
+                <div style={{ background: C.accentDim, border: "1px solid rgba(0,212,170,0.2)", borderRadius: 10, padding: "16px 20px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 12 }}>✓ Encontradas</div>
+                  {foundKws.map((r, i) => <div key={i} style={{ padding: "6px 0", borderBottom: i < foundKws.length - 1 ? "1px solid rgba(0,212,170,0.08)" : "none", fontSize: 13, color: "rgba(0,212,170,0.8)" }}>{r.kw}</div>)}
+                  {foundKws.length === 0 && <div style={{ color: C.textMuted, fontSize: 12, fontStyle: "italic" }}>Ninguna keyword encontrada aún</div>}
+                </div>
+              </div>
+              {pct === 100 && (
+                <div style={{ marginTop: 16, textAlign: "center", padding: 14, background: C.accentDim, borderRadius: 10, border: "1px solid rgba(0,212,170,0.3)", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 600, color: C.accent }}>
+                  ✦ Todas las keywords cubiertas — listo para entregar
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ═══════════════════════════════════════════
+       ANCHOR CHECKER
+       ═══════════════════════════════════════════ */
+
+    const DEFAULT_LINKS = `https://stake.pe/bienvenida
+https://stake.pe/casino/principal
+https://stake.pe/deportes
+https://stake.pe/casino/grupo/slots
+https://stake.pe/casino/grupo/casino-en-vivo
+https://stake.pe/casino/grupo/concursos-de-tv
+https://stake.pe/casino/grupo/funcion-compra
+https://stake.pe/casino/grupo/estrenos-de-stake
+https://stake.pe/casino/grupo/juegos-de-mesa
+https://stake.pe/casino/grupo/blackjack
+https://stake.pe/casino/grupo/baccarat
+https://stake.pe/casino/grupo/ruleta
+https://stake.pe/promociones
+https://stake.pe/monthly
+https://stake.pe/club-vip
+https://stake.pe/casino/proveedores
+https://stake.pe/casino/proveedor-juegos/pragmatic-play-live
+https://stake.pe/casino/proveedor-juegos/evolution
+https://stake.pe/casino/proveedor-juegos/hacksaw
+https://stake.pe/casino/proveedor-juegos/pragmatic-play
+https://stake.pe/casino/proveedor-juegos/nolimit-city
+https://stake.pe/casino/proveedor-juegos/netent
+https://stake.pe/casino/proveedor-juegos/big-time-gaming
+https://stake.pe/casino/proveedor-juegos/evolution-first-person
+https://stake.pe/casino/proveedor-juegos/red-tiger
+https://stake.pe/casino/proveedor-juegos/amusnet`;
+
+    function catLink(url) {
+      if (url.includes("/proveedor-juegos/")) return "Proveedor";
+      if (url.includes("/casino/grupo/")) return "Casino";
+      if (url.includes("/blog/")) return "Blog";
+      if (url.includes("/deportes") || url.includes("/sports")) return "Deportes";
+      if (url.includes("/promociones") || url.includes("/monthly") || url.includes("/club-vip") || url.includes("/bienvenida")) return "Promos";
+      return "General";
+    }
+
+    const CAT_COLORS = { Proveedor: "#a78bfa", Casino: "#60a5fa", Blog: "#34d399", Deportes: "#f472b6", Promos: "#fbbf24", General: "#94a3b8" };
+
+    function AnchorChecker() {
+      const [linksInput, setLinksInput] = useState(DEFAULT_LINKS);
+      const [article, setArticle] = useState("");
+      const [articleHtml, setArticleHtml] = useState("");
+      const [pasteMode, setPasteMode] = useState(null);
+      const [activeFilter, setActiveFilter] = useState("all");
+      const editorRef = useRef(null);
+
+      const handlePaste = useCallback((e) => {
+        e.preventDefault();
+        const html = e.clipboardData.getData("text/html");
+        const plain = e.clipboardData.getData("text/plain");
+        if (html && html.includes("href")) {
+          setArticleHtml(html);
+          setArticle(html);
+          setPasteMode("rich");
+          if (editorRef.current) {
+            editorRef.current.innerHTML = html;
+          }
+        } else {
+          setArticle(plain);
+          setArticleHtml("");
+          setPasteMode("plain");
+          if (editorRef.current) {
+            editorRef.current.innerText = plain;
+          }
+        }
+      }, []);
+
+      const handleClear = useCallback(() => {
+        setArticle("");
+        setArticleHtml("");
+        setPasteMode(null);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = "";
+        }
+      }, []);
+
+      const links = useMemo(() => linksInput.split("\n").map(l => l.trim()).filter(l => l.length > 0), [linksInput]);
+
+      const results = useMemo(() => {
+        if (!links.length || !article.trim()) return null;
+        const norm = url => url.replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
+        return links.map(link => {
+          const nl = norm(link);
+          const esc = link.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const escN = nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const nakedMatches = article.match(new RegExp(esc, "gi")) || [];
+          const hrefPat = new RegExp(`<a[^>]*href=["']([^"']*${escN}[^"']*)["'][^>]*>(.*?)<\\/a>`, "gi");
+          const anchorMatches = [...article.matchAll(hrefPat)];
+          const mdPat = new RegExp(`\\[([^\\]]+)\\]\\(([^)]*${escN}[^)]*)\\)`, "gi");
+          const mdMatches = [...article.matchAll(mdPat)];
+          const hrefOnly = new RegExp(`href=["']([^"']*${escN}[^"']*)["']`, "gi");
+          const hrefOnlyMatches = [...article.matchAll(hrefOnly)];
+          const isAnchored = anchorMatches.length > 0 || mdMatches.length > 0;
+          const hasHref = hrefOnlyMatches.length > 0;
+          const isNaked = nakedMatches.length > 0 && !isAnchored && !hasHref;
+          const anchorTexts = [...anchorMatches.map(m => m[2]?.replace(/<[^>]*>/g, "").trim()), ...mdMatches.map(m => m[1]?.trim())].filter(Boolean);
+          let status = "missing";
+          if (isAnchored || hasHref) status = "good";
+          else if (isNaked) status = "naked";
+          return { url: link, status, anchorTexts, nakedCount: isNaked ? nakedMatches.length : 0, category: catLink(link) };
+        });
+      }, [links, article]);
+
+      const good = results ? results.filter(r => r.status === "good") : [];
+      const naked = results ? results.filter(r => r.status === "naked") : [];
+      const missing = results ? results.filter(r => r.status === "missing") : [];
+      const total = results ? results.length : 0;
+      const pct = total ? Math.round((good.length / total) * 100) : 0;
+      const filtered = results ? (activeFilter === "all" ? results : activeFilter === "good" ? good : activeFilter === "naked" ? naked : missing) : [];
+
+      return (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 16, marginBottom: 20 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8 }}>
+                Enlaces requeridos
+                {links.length > 0 && <span style={{ color: C.accent, marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>{links.length}</span>}
+              </label>
+              <textarea value={linksInput} onChange={e => setLinksInput(e.target.value)}
+                placeholder={"un enlace por línea\nhttps://stake.pe/bienvenida\nhttps://stake.pe/deportes..."}
+                spellCheck={false}
+                style={{ width: "100%", height: 340, background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: "inherit", fontSize: 12, padding: "14px 16px", resize: "none", outline: "none", lineHeight: 1.7 }}
+              />
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px" }}>
+                  Artículo
+                  {pasteMode && <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, fontSize: 10, marginLeft: 8, color: pasteMode === "rich" ? C.accent : C.textMuted }}>{pasteMode === "rich" ? "✦ HTML con links detectado" : "texto plano"}</span>}
+                </label>
+                {article && (
+                  <button onClick={handleClear}
+                    style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                    limpiar
+                  </button>
+                )}
+              </div>
+              <div ref={editorRef} contentEditable="true" onPaste={handlePaste}
+                suppressContentEditableWarning={true}
+                data-placeholder="Pega aquí desde Google Docs — los anchor links se capturan automáticamente"
+                style={{ width: "100%", height: 340, background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: "inherit", fontSize: 13, padding: "14px 16px", overflowY: "auto", lineHeight: 1.8, outline: "none", whiteSpace: "pre-wrap", wordBreak: "break-word", position: "relative" }}
+              />
+              <style>{`[data-placeholder]:empty::before { content: attr(data-placeholder); color: #4a5568; pointer-events: none; }`}</style>
+            </div>
+          </div>
+
+          {results && (
+            <div>
+              {/* Score */}
+              <div style={{ background: C.surface, borderRadius: 10, padding: "16px 20px", marginBottom: 16, border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
+                    <span><span style={{ color: C.accent, fontWeight: 700, fontSize: 20 }}>{good.length}</span><span style={{ color: C.textMuted, marginLeft: 6 }}>integrados</span></span>
+                    <span><span style={{ color: C.warning, fontWeight: 700, fontSize: 20 }}>{naked.length}</span><span style={{ color: C.textMuted, marginLeft: 6 }}>URL abierta</span></span>
+                    <span><span style={{ color: missing.length > 0 ? C.danger : C.accent, fontWeight: 700, fontSize: 20 }}>{missing.length}</span><span style={{ color: C.textMuted, marginLeft: 6 }}>faltan</span></span>
+                  </div>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger }}>{pct}%</span>
+                </div>
+                <div style={{ height: 6, background: C.inputBg, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+                  <div style={{ width: `${(good.length/total)*100}%`, background: C.accent, transition: "width 0.4s" }} />
+                  <div style={{ width: `${(naked.length/total)*100}%`, background: C.warning, transition: "width 0.4s" }} />
+                  <div style={{ width: `${(missing.length/total)*100}%`, background: C.danger, transition: "width 0.4s" }} />
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+                {[
+                  { id: "all", label: `Todos (${total})`, color: C.textMuted },
+                  { id: "missing", label: `Faltan (${missing.length})`, color: C.danger },
+                  { id: "naked", label: `URL abierta (${naked.length})`, color: C.warning },
+                  { id: "good", label: `Integrados (${good.length})`, color: C.accent },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveFilter(tab.id)}
+                    style={{ background: activeFilter === tab.id ? `${tab.color}20` : "transparent", border: `1px solid ${activeFilter === tab.id ? `${tab.color}40` : C.border}`, color: activeFilter === tab.id ? tab.color : C.textMuted, borderRadius: 6, padding: "6px 14px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: activeFilter === tab.id ? 600 : 400, transition: "all 0.15s" }}>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* List */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {filtered.map((item, i) => {
+                  const sc = item.status === "good" ? C.accent : item.status === "naked" ? C.warning : C.danger;
+                  return (
+                    <div key={i} style={{ background: C.surface, borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 12, border: `1px solid ${C.border}`, borderLeftWidth: 3, borderLeftColor: sc }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", marginTop: 5, flexShrink: 0, background: sc, boxShadow: `0 0 6px ${sc}40` }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: C.text, wordBreak: "break-all", lineHeight: 1.4 }}>{item.url}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                          <span style={{ fontSize: 9, color: CAT_COLORS[item.category] || C.textMuted, background: `${CAT_COLORS[item.category] || C.textMuted}18`, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{item.category}</span>
+                          {item.status === "naked" && <span style={{ fontSize: 11, color: C.warning, opacity: 0.9 }}>⚠ {item.nakedCount}× como URL abierta</span>}
+                          {item.status === "missing" && <span style={{ fontSize: 11, color: C.danger, opacity: 0.8 }}>✕ No encontrado</span>}
+                        </div>
+                        {item.status === "good" && item.anchorTexts.length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {item.anchorTexts.map((text, j) => <div key={j} style={{ fontSize: 11, color: C.accent, opacity: 0.8, lineHeight: 1.6 }}>→ "{text}"</div>)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontSize: 12 }}>
+                    {activeFilter === "missing" && "✦ Sin enlaces faltantes"}
+                    {activeFilter === "naked" && "✦ Sin URLs abiertas"}
+                    {activeFilter === "good" && "Ningún enlace integrado aún"}
+                    {activeFilter === "all" && "Pega un artículo para analizar"}
+                  </div>
+                )}
+              </div>
+
+              {naked.length > 0 && (
+                <div style={{ marginTop: 16, background: C.warningDim, border: "1px solid rgba(255,217,61,0.2)", borderRadius: 10, padding: "14px 18px", fontSize: 12, color: C.warning, lineHeight: 1.7 }}>
+                  <strong>Recordatorio:</strong> Los enlaces deben integrarse de forma natural dentro del texto. Nada de link dumping ni URLs abiertas. Introduce el concepto → desarróllalo → enlaza con contexto.
+                </div>
+              )}
+              {pct === 100 && naked.length === 0 && (
+                <div style={{ marginTop: 16, textAlign: "center", padding: 14, background: C.accentDim, borderRadius: 10, border: "1px solid rgba(0,212,170,0.3)", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 600, color: C.accent }}>
+                  ✦ Todos los enlaces integrados correctamente — listo para entregar
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ═══════════════════════════════════════════
+       APP (TAB SHELL)
+       ═══════════════════════════════════════════ */
+
+    function App() {
+      const [tab, setTab] = useState("kw");
+
+      const tabs = [
+        { id: "kw", label: "KW Checker", icon: "◆" },
+        { id: "anchor", label: "Anchor Links", icon: "◇" },
+      ];
+
+      return (
+        <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }}>
+          {/* Nav */}
+          <div style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <div style={{ paddingRight: 24, marginRight: 2, borderRight: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 52 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: C.accent, letterSpacing: "-0.5px" }}>Content QA</span>
+              </div>
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  style={{ background: "none", border: "none", borderBottom: tab === t.id ? `2px solid ${C.accent}` : "2px solid transparent", color: tab === t.id ? C.accent : C.textMuted, padding: "16px 20px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: tab === t.id ? 600 : 400, letterSpacing: "0.04em", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10 }}>{t.icon}</span>{t.label}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: 10, color: C.textMuted, letterSpacing: "0.06em" }}>v2.0</span>
+          </div>
+
+          {/* Content */}
+          <div style={{ display: tab === "kw" ? "block" : "none" }}><KWChecker /></div>
+          <div style={{ display: tab === "anchor" ? "block" : "none" }}><AnchorChecker /></div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+  </script>
+</body>
+</html>
