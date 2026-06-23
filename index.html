@@ -3,20 +3,45 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Content QA — KW Checker + Anchor Links</title>
+  <title>Content QA — Keywords + Anchor Links</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0F1923; }
-    textarea:focus { border-color: #2A3A4A !important; outline: none; }
+    textarea:focus, [contenteditable]:focus { border-color: #00D4AA !important; outline: none; }
+    [data-placeholder]:empty::before { content: attr(data-placeholder); color: #4a5568; pointer-events: none; }
+
+    .qa-nav { border-bottom: 1px solid #2A3A4A; padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; }
+
+    /* INPUTS: sidebar (keywords+links) | article */
+    .qa-inputs { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+    .qa-sidebar { display: flex; flex-direction: column; gap: 16px; }
+    /* two-column result lists */
+    .qa-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* ── 1024px ── */
+    @media (max-width: 1024px) {
+      .qa-inputs { grid-template-columns: 280px 1fr; }
+    }
+    /* ── 768px: stack inputs, article goes full width below ── */
+    @media (max-width: 768px) {
+      .qa-inputs { grid-template-columns: 1fr; }
+    }
+    /* ── 600px: result lists stack ── */
+    @media (max-width: 600px) {
+      .qa-two-col { grid-template-columns: 1fr; }
+    }
+    /* ── 380px: tighten padding ── */
+    @media (max-width: 380px) {
+      .qa-nav { padding: 0 14px; }
+      .qa-inputs { gap: 12px; }
+    }
   </style>
 </head>
 <body>
   <div id="root"></div>
-
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-
   <script>
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 const {
@@ -26,10 +51,7 @@ const {
   useCallback
 } = React;
 
-/* ═══════════════════════════════════════════
-   SHARED
-   ═══════════════════════════════════════════ */
-
+/* ═══════════ SHARED ═══════════ */
 const C = {
   bg: "#0F1923",
   surface: "#1A2735",
@@ -47,383 +69,25 @@ const C = {
 };
 const FONT = "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace";
 const FONT_DISPLAY = "'Space Grotesk', sans-serif";
-
-/* ═══════════════════════════════════════════
-   KW CHECKER
-   ═══════════════════════════════════════════ */
-
 function normalizeKw(str) {
   return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
-function highlightMatches(text, keywords) {
-  if (!keywords.length || !text) return text;
-  const normalizedText = normalizeKw(text);
-  const ranges = [];
-  for (const kw of keywords) {
-    const nkw = normalizeKw(kw);
-    if (!nkw) continue;
-    let startIdx = 0;
-    while (true) {
-      const pos = normalizedText.indexOf(nkw, startIdx);
-      if (pos === -1) break;
-      ranges.push([pos, pos + nkw.length]);
-      startIdx = pos + 1;
-    }
-  }
-  if (!ranges.length) return text;
-  ranges.sort((a, b) => a[0] - b[0]);
-  const merged = [ranges[0]];
-  for (let i = 1; i < ranges.length; i++) {
-    const last = merged[merged.length - 1];
-    if (ranges[i][0] <= last[1]) last[1] = Math.max(last[1], ranges[i][1]);else merged.push(ranges[i]);
-  }
-  const normToOrig = [];
-  let oi = 0;
-  for (let ni = 0; ni < normalizedText.length; ni++) {
-    while (oi < text.length && normalizeKw(text[oi]) === "" && normalizedText[ni] !== normalizeKw(text[oi])) oi++;
-    normToOrig.push(oi);
-    oi++;
-  }
-  normToOrig.push(text.length);
-  const parts = [];
-  let lastEnd = 0;
-  for (const [s, e] of merged) {
-    const origS = normToOrig[s] || 0;
-    const origE = normToOrig[e] !== undefined ? normToOrig[e] : text.length;
-    if (origS > lastEnd) parts.push({
-      text: text.slice(lastEnd, origS),
-      hl: false
-    });
-    parts.push({
-      text: text.slice(origS, origE),
-      hl: true
-    });
-    lastEnd = origE;
-  }
-  if (lastEnd < text.length) parts.push({
-    text: text.slice(lastEnd),
-    hl: false
-  });
-  return parts.map((p, i) => p.hl ? React.createElement("mark", {
-    key: i,
-    style: {
-      background: "rgba(0,212,170,0.25)",
-      color: C.accent,
-      borderRadius: 2,
-      padding: "1px 0",
-      fontWeight: 600
-    }
-  }, p.text) : React.createElement("span", {
-    key: i
-  }, p.text));
+function catLink(url) {
+  if (url.includes("/proveedor-juegos/")) return "Proveedor";
+  if (url.includes("/casino/grupo/")) return "Casino";
+  if (url.includes("/blog/")) return "Blog";
+  if (url.includes("/deportes") || url.includes("/sports")) return "Deportes";
+  if (url.includes("/promociones") || url.includes("/monthly") || url.includes("/club-vip") || url.includes("/bienvenida")) return "Promos";
+  return "General";
 }
-function KWChecker() {
-  const [kwInput, setKwInput] = useState("");
-  const [article, setArticle] = useState("");
-  const [showHighlights, setShowHighlights] = useState(true);
-  const keywords = useMemo(() => kwInput.split("\n").map(l => l.trim()).filter(Boolean), [kwInput]);
-  const results = useMemo(() => {
-    if (!keywords.length || !article.trim()) return null;
-    const na = normalizeKw(article);
-    return keywords.map(kw => {
-      const nkw = normalizeKw(kw);
-      return {
-        kw,
-        found: nkw ? na.includes(nkw) : false
-      };
-    });
-  }, [keywords, article]);
-  const foundKws = results ? results.filter(r => r.found) : [];
-  const missingKws = results ? results.filter(r => !r.found) : [];
-  const total = results ? results.length : 0;
-  const pct = total ? Math.round(foundKws.length / total * 100) : 0;
-  return /*#__PURE__*/_jsxs("div", {
-    style: {
-      padding: 24
-    },
-    children: [/*#__PURE__*/_jsxs("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "300px 1fr",
-        gap: 16,
-        marginBottom: 20
-      },
-      children: [/*#__PURE__*/_jsxs("div", {
-        children: [/*#__PURE__*/_jsxs("label", {
-          style: {
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: C.textMuted,
-            textTransform: "uppercase",
-            letterSpacing: "1.5px",
-            marginBottom: 8
-          },
-          children: ["Keywords del cliente", keywords.length > 0 && /*#__PURE__*/_jsx("span", {
-            style: {
-              color: C.accent,
-              marginLeft: 8,
-              textTransform: "none",
-              letterSpacing: 0
-            },
-            children: keywords.length
-          })]
-        }), /*#__PURE__*/_jsx("textarea", {
-          value: kwInput,
-          onChange: e => setKwInput(e.target.value),
-          placeholder: "una keyword por línea\nmejores casinos online\ntragamonedas gratis\nbono sin depósito...",
-          spellCheck: false,
-          style: {
-            width: "100%",
-            height: 340,
-            background: C.inputBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            color: C.text,
-            fontFamily: "inherit",
-            fontSize: 13,
-            padding: "14px 16px",
-            resize: "none",
-            outline: "none",
-            lineHeight: 1.7
-          }
-        })]
-      }), /*#__PURE__*/_jsxs("div", {
-        children: [/*#__PURE__*/_jsxs("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8
-          },
-          children: [/*#__PURE__*/_jsx("label", {
-            style: {
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.textMuted,
-              textTransform: "uppercase",
-              letterSpacing: "1.5px"
-            },
-            children: "Artículo"
-          }), results && /*#__PURE__*/_jsx("button", {
-            onClick: () => setShowHighlights(!showHighlights),
-            style: {
-              background: showHighlights ? C.accentDim : "transparent",
-              border: `1px solid ${showHighlights ? C.accent : C.border}`,
-              color: showHighlights ? C.accent : C.textMuted,
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "inherit"
-            },
-            children: showHighlights ? "✦ highlights on" : "highlights off"
-          })]
-        }), showHighlights && results && article.trim() ? /*#__PURE__*/_jsx("div", {
-          style: {
-            width: "100%",
-            height: 340,
-            background: C.inputBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            color: C.text,
-            fontSize: 13,
-            padding: "14px 16px",
-            overflowY: "auto",
-            lineHeight: 1.8,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word"
-          },
-          children: highlightMatches(article, foundKws.map(r => r.kw))
-        }) : /*#__PURE__*/_jsx("textarea", {
-          value: article,
-          onChange: e => setArticle(e.target.value),
-          placeholder: "Pega aquí el texto completo del artículo...",
-          spellCheck: false,
-          style: {
-            width: "100%",
-            height: 340,
-            background: C.inputBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            color: C.text,
-            fontFamily: "inherit",
-            fontSize: 13,
-            padding: "14px 16px",
-            resize: "none",
-            outline: "none",
-            lineHeight: 1.8
-          }
-        })]
-      })]
-    }), results && /*#__PURE__*/_jsxs("div", {
-      children: [/*#__PURE__*/_jsxs("div", {
-        style: {
-          background: C.surface,
-          borderRadius: 10,
-          padding: "16px 20px",
-          marginBottom: 16,
-          border: `1px solid ${C.border}`
-        },
-        children: [/*#__PURE__*/_jsxs("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 10
-          },
-          children: [/*#__PURE__*/_jsxs("div", {
-            style: {
-              display: "flex",
-              gap: 24,
-              fontSize: 13
-            },
-            children: [/*#__PURE__*/_jsxs("span", {
-              children: [/*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.accent,
-                  fontWeight: 700,
-                  fontSize: 20
-                },
-                children: foundKws.length
-              }), /*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.textMuted,
-                  marginLeft: 6
-                },
-                children: "encontradas"
-              })]
-            }), /*#__PURE__*/_jsxs("span", {
-              children: [/*#__PURE__*/_jsx("span", {
-                style: {
-                  color: missingKws.length > 0 ? C.danger : C.accent,
-                  fontWeight: 700,
-                  fontSize: 20
-                },
-                children: missingKws.length
-              }), /*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.textMuted,
-                  marginLeft: 6
-                },
-                children: "faltan"
-              })]
-            })]
-          }), /*#__PURE__*/_jsxs("span", {
-            style: {
-              fontFamily: FONT_DISPLAY,
-              fontSize: 28,
-              fontWeight: 700,
-              color: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger
-            },
-            children: [pct, "%"]
-          })]
-        }), /*#__PURE__*/_jsx("div", {
-          style: {
-            height: 6,
-            background: C.inputBg,
-            borderRadius: 3,
-            overflow: "hidden"
-          },
-          children: /*#__PURE__*/_jsx("div", {
-            style: {
-              height: "100%",
-              width: `${pct}%`,
-              background: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger,
-              borderRadius: 3,
-              transition: "width 0.4s ease"
-            }
-          })
-        })]
-      }), /*#__PURE__*/_jsxs("div", {
-        style: {
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16
-        },
-        children: [missingKws.length > 0 && /*#__PURE__*/_jsxs("div", {
-          style: {
-            background: C.dangerDim,
-            border: "1px solid rgba(255,107,107,0.25)",
-            borderRadius: 10,
-            padding: "16px 20px"
-          },
-          children: [/*#__PURE__*/_jsx("div", {
-            style: {
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.danger,
-              textTransform: "uppercase",
-              letterSpacing: "1.5px",
-              marginBottom: 12
-            },
-            children: "✕ Faltan"
-          }), missingKws.map((r, i) => /*#__PURE__*/_jsx("div", {
-            style: {
-              padding: "6px 0",
-              borderBottom: i < missingKws.length - 1 ? "1px solid rgba(255,107,107,0.1)" : "none",
-              fontSize: 13,
-              color: "#FFB4B4"
-            },
-            children: r.kw
-          }, i))]
-        }), /*#__PURE__*/_jsxs("div", {
-          style: {
-            background: C.accentDim,
-            border: "1px solid rgba(0,212,170,0.2)",
-            borderRadius: 10,
-            padding: "16px 20px"
-          },
-          children: [/*#__PURE__*/_jsx("div", {
-            style: {
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.accent,
-              textTransform: "uppercase",
-              letterSpacing: "1.5px",
-              marginBottom: 12
-            },
-            children: "✓ Encontradas"
-          }), foundKws.map((r, i) => /*#__PURE__*/_jsx("div", {
-            style: {
-              padding: "6px 0",
-              borderBottom: i < foundKws.length - 1 ? "1px solid rgba(0,212,170,0.08)" : "none",
-              fontSize: 13,
-              color: "rgba(0,212,170,0.8)"
-            },
-            children: r.kw
-          }, i)), foundKws.length === 0 && /*#__PURE__*/_jsx("div", {
-            style: {
-              color: C.textMuted,
-              fontSize: 12,
-              fontStyle: "italic"
-            },
-            children: "Ninguna keyword encontrada aún"
-          })]
-        })]
-      }), pct === 100 && /*#__PURE__*/_jsx("div", {
-        style: {
-          marginTop: 16,
-          textAlign: "center",
-          padding: 14,
-          background: C.accentDim,
-          borderRadius: 10,
-          border: "1px solid rgba(0,212,170,0.3)",
-          fontFamily: FONT_DISPLAY,
-          fontSize: 15,
-          fontWeight: 600,
-          color: C.accent
-        },
-        children: "✦ Todas las keywords cubiertas — listo para entregar"
-      })]
-    })]
-  });
-}
-
-/* ═══════════════════════════════════════════
-   ANCHOR CHECKER
-   ═══════════════════════════════════════════ */
-
+const CAT_COLORS = {
+  Proveedor: "#a78bfa",
+  Casino: "#60a5fa",
+  Blog: "#34d399",
+  Deportes: "#f472b6",
+  Promos: "#fbbf24",
+  General: "#94a3b8"
+};
 const DEFAULT_LINKS = `https://stake.pe/bienvenida
 https://stake.pe/casino/principal
 https://stake.pe/deportes
@@ -450,26 +114,13 @@ https://stake.pe/casino/proveedor-juegos/big-time-gaming
 https://stake.pe/casino/proveedor-juegos/evolution-first-person
 https://stake.pe/casino/proveedor-juegos/red-tiger
 https://stake.pe/casino/proveedor-juegos/amusnet`;
-function catLink(url) {
-  if (url.includes("/proveedor-juegos/")) return "Proveedor";
-  if (url.includes("/casino/grupo/")) return "Casino";
-  if (url.includes("/blog/")) return "Blog";
-  if (url.includes("/deportes") || url.includes("/sports")) return "Deportes";
-  if (url.includes("/promociones") || url.includes("/monthly") || url.includes("/club-vip") || url.includes("/bienvenida")) return "Promos";
-  return "General";
-}
-const CAT_COLORS = {
-  Proveedor: "#a78bfa",
-  Casino: "#60a5fa",
-  Blog: "#34d399",
-  Deportes: "#f472b6",
-  Promos: "#fbbf24",
-  General: "#94a3b8"
-};
-function AnchorChecker() {
+
+/* ═══════════ APP ═══════════ */
+function App() {
+  const [kwInput, setKwInput] = useState("");
   const [linksInput, setLinksInput] = useState(DEFAULT_LINKS);
-  const [article, setArticle] = useState("");
-  const [articleHtml, setArticleHtml] = useState("");
+  const [articleRaw, setArticleRaw] = useState(""); // HTML o texto plano -> matching de enlaces
+  const [articleText, setArticleText] = useState(""); // texto visible -> matching de keywords
   const [pasteMode, setPasteMode] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const editorRef = useRef(null);
@@ -478,44 +129,65 @@ function AnchorChecker() {
     const html = e.clipboardData.getData("text/html");
     const plain = e.clipboardData.getData("text/plain");
     if (html && html.includes("href")) {
-      setArticleHtml(html);
-      setArticle(html);
+      setArticleRaw(html);
       setPasteMode("rich");
-      if (editorRef.current) {
-        editorRef.current.innerHTML = html;
-      }
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      setArticleText(tmp.innerText || tmp.textContent || "");
+      if (editorRef.current) editorRef.current.innerHTML = html;
     } else {
-      setArticle(plain);
-      setArticleHtml("");
+      setArticleRaw(plain);
+      setArticleText(plain);
       setPasteMode("plain");
-      if (editorRef.current) {
-        editorRef.current.innerText = plain;
-      }
+      if (editorRef.current) editorRef.current.innerText = plain;
     }
+  }, []);
+  const handleInput = useCallback(() => {
+    if (!editorRef.current) return;
+    setArticleRaw(editorRef.current.innerHTML);
+    setArticleText(editorRef.current.innerText || "");
   }, []);
   const handleClear = useCallback(() => {
-    setArticle("");
-    setArticleHtml("");
+    setArticleRaw("");
+    setArticleText("");
     setPasteMode(null);
-    if (editorRef.current) {
-      editorRef.current.innerHTML = "";
-    }
+    if (editorRef.current) editorRef.current.innerHTML = "";
   }, []);
+
+  /* ── KEYWORDS ── */
+  const keywords = useMemo(() => kwInput.split("\n").map(l => l.trim()).filter(Boolean), [kwInput]);
+  const kwResults = useMemo(() => {
+    if (!keywords.length || !articleText.trim()) return null;
+    const na = normalizeKw(articleText);
+    return keywords.map(kw => {
+      const nkw = normalizeKw(kw);
+      return {
+        kw,
+        found: nkw ? na.includes(nkw) : false
+      };
+    });
+  }, [keywords, articleText]);
+  const kwFound = kwResults ? kwResults.filter(r => r.found) : [];
+  const kwMissing = kwResults ? kwResults.filter(r => !r.found) : [];
+  const kwTotal = kwResults ? kwResults.length : 0;
+  const kwPct = kwTotal ? Math.round(kwFound.length / kwTotal * 100) : 0;
+
+  /* ── ENLACES ── */
   const links = useMemo(() => linksInput.split("\n").map(l => l.trim()).filter(l => l.length > 0), [linksInput]);
-  const results = useMemo(() => {
-    if (!links.length || !article.trim()) return null;
+  const linkResults = useMemo(() => {
+    if (!links.length || !articleRaw.trim()) return null;
     const norm = url => url.replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
     return links.map(link => {
       const nl = norm(link);
       const esc = link.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const escN = nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const nakedMatches = article.match(new RegExp(esc, "gi")) || [];
+      const nakedMatches = articleRaw.match(new RegExp(esc, "gi")) || [];
       const hrefPat = new RegExp(`<a[^>]*href=["']([^"']*${escN}[^"']*)["'][^>]*>(.*?)<\\/a>`, "gi");
-      const anchorMatches = [...article.matchAll(hrefPat)];
+      const anchorMatches = [...articleRaw.matchAll(hrefPat)];
       const mdPat = new RegExp(`\\[([^\\]]+)\\]\\(([^)]*${escN}[^)]*)\\)`, "gi");
-      const mdMatches = [...article.matchAll(mdPat)];
+      const mdMatches = [...articleRaw.matchAll(mdPat)];
       const hrefOnly = new RegExp(`href=["']([^"']*${escN}[^"']*)["']`, "gi");
-      const hrefOnlyMatches = [...article.matchAll(hrefOnly)];
+      const hrefOnlyMatches = [...articleRaw.matchAll(hrefOnly)];
       const isAnchored = anchorMatches.length > 0 || mdMatches.length > 0;
       const hasHref = hrefOnlyMatches.length > 0;
       const isNaked = nakedMatches.length > 0 && !isAnchored && !hasHref;
@@ -530,426 +202,35 @@ function AnchorChecker() {
         category: catLink(link)
       };
     });
-  }, [links, article]);
-  const good = results ? results.filter(r => r.status === "good") : [];
-  const naked = results ? results.filter(r => r.status === "naked") : [];
-  const missing = results ? results.filter(r => r.status === "missing") : [];
-  const total = results ? results.length : 0;
-  const pct = total ? Math.round(good.length / total * 100) : 0;
-  const filtered = results ? activeFilter === "all" ? results : activeFilter === "good" ? good : activeFilter === "naked" ? naked : missing : [];
-  return /*#__PURE__*/_jsxs("div", {
-    style: {
-      padding: 24
-    },
-    children: [/*#__PURE__*/_jsxs("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "300px 1fr",
-        gap: 16,
-        marginBottom: 20
-      },
-      children: [/*#__PURE__*/_jsxs("div", {
-        children: [/*#__PURE__*/_jsxs("label", {
-          style: {
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: C.textMuted,
-            textTransform: "uppercase",
-            letterSpacing: "1.5px",
-            marginBottom: 8
-          },
-          children: ["Enlaces requeridos", links.length > 0 && /*#__PURE__*/_jsx("span", {
-            style: {
-              color: C.accent,
-              marginLeft: 8,
-              textTransform: "none",
-              letterSpacing: 0
-            },
-            children: links.length
-          })]
-        }), /*#__PURE__*/_jsx("textarea", {
-          value: linksInput,
-          onChange: e => setLinksInput(e.target.value),
-          placeholder: "un enlace por línea\nhttps://stake.pe/bienvenida\nhttps://stake.pe/deportes...",
-          spellCheck: false,
-          style: {
-            width: "100%",
-            height: 340,
-            background: C.inputBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            color: C.text,
-            fontFamily: "inherit",
-            fontSize: 12,
-            padding: "14px 16px",
-            resize: "none",
-            outline: "none",
-            lineHeight: 1.7
-          }
-        })]
-      }), /*#__PURE__*/_jsxs("div", {
-        children: [/*#__PURE__*/_jsxs("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8
-          },
-          children: [/*#__PURE__*/_jsxs("label", {
-            style: {
-              display: "block",
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.textMuted,
-              textTransform: "uppercase",
-              letterSpacing: "1.5px"
-            },
-            children: ["Artículo", pasteMode && /*#__PURE__*/_jsx("span", {
-              style: {
-                textTransform: "none",
-                letterSpacing: 0,
-                fontWeight: 400,
-                fontSize: 10,
-                marginLeft: 8,
-                color: pasteMode === "rich" ? C.accent : C.textMuted
-              },
-              children: pasteMode === "rich" ? "✦ HTML con links detectado" : "texto plano"
-            })]
-          }), article && /*#__PURE__*/_jsx("button", {
-            onClick: handleClear,
-            style: {
-              background: "transparent",
-              border: `1px solid ${C.border}`,
-              color: C.textMuted,
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "inherit"
-            },
-            children: "limpiar"
-          })]
-        }), /*#__PURE__*/_jsx("div", {
-          ref: editorRef,
-          contentEditable: "true",
-          onPaste: handlePaste,
-          suppressContentEditableWarning: true,
-          "data-placeholder": "Pega aquí desde Google Docs — los anchor links se capturan automáticamente",
-          style: {
-            width: "100%",
-            height: 340,
-            background: C.inputBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            color: C.text,
-            fontFamily: "inherit",
-            fontSize: 13,
-            padding: "14px 16px",
-            overflowY: "auto",
-            lineHeight: 1.8,
-            outline: "none",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            position: "relative"
-          }
-        }), /*#__PURE__*/_jsx("style", {
-          children: `[data-placeholder]:empty::before { content: attr(data-placeholder); color: #4a5568; pointer-events: none; }`
-        })]
-      })]
-    }), results && /*#__PURE__*/_jsxs("div", {
-      children: [/*#__PURE__*/_jsxs("div", {
-        style: {
-          background: C.surface,
-          borderRadius: 10,
-          padding: "16px 20px",
-          marginBottom: 16,
-          border: `1px solid ${C.border}`
-        },
-        children: [/*#__PURE__*/_jsxs("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 10
-          },
-          children: [/*#__PURE__*/_jsxs("div", {
-            style: {
-              display: "flex",
-              gap: 24,
-              fontSize: 13
-            },
-            children: [/*#__PURE__*/_jsxs("span", {
-              children: [/*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.accent,
-                  fontWeight: 700,
-                  fontSize: 20
-                },
-                children: good.length
-              }), /*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.textMuted,
-                  marginLeft: 6
-                },
-                children: "integrados"
-              })]
-            }), /*#__PURE__*/_jsxs("span", {
-              children: [/*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.warning,
-                  fontWeight: 700,
-                  fontSize: 20
-                },
-                children: naked.length
-              }), /*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.textMuted,
-                  marginLeft: 6
-                },
-                children: "URL abierta"
-              })]
-            }), /*#__PURE__*/_jsxs("span", {
-              children: [/*#__PURE__*/_jsx("span", {
-                style: {
-                  color: missing.length > 0 ? C.danger : C.accent,
-                  fontWeight: 700,
-                  fontSize: 20
-                },
-                children: missing.length
-              }), /*#__PURE__*/_jsx("span", {
-                style: {
-                  color: C.textMuted,
-                  marginLeft: 6
-                },
-                children: "faltan"
-              })]
-            })]
-          }), /*#__PURE__*/_jsxs("span", {
-            style: {
-              fontFamily: FONT_DISPLAY,
-              fontSize: 28,
-              fontWeight: 700,
-              color: pct === 100 ? C.accent : pct > 70 ? C.warning : C.danger
-            },
-            children: [pct, "%"]
-          })]
-        }), /*#__PURE__*/_jsxs("div", {
-          style: {
-            height: 6,
-            background: C.inputBg,
-            borderRadius: 3,
-            overflow: "hidden",
-            display: "flex"
-          },
-          children: [/*#__PURE__*/_jsx("div", {
-            style: {
-              width: `${good.length / total * 100}%`,
-              background: C.accent,
-              transition: "width 0.4s"
-            }
-          }), /*#__PURE__*/_jsx("div", {
-            style: {
-              width: `${naked.length / total * 100}%`,
-              background: C.warning,
-              transition: "width 0.4s"
-            }
-          }), /*#__PURE__*/_jsx("div", {
-            style: {
-              width: `${missing.length / total * 100}%`,
-              background: C.danger,
-              transition: "width 0.4s"
-            }
-          })]
-        })]
-      }), /*#__PURE__*/_jsx("div", {
-        style: {
-          display: "flex",
-          gap: 4,
-          marginBottom: 16
-        },
-        children: [{
-          id: "all",
-          label: `Todos (${total})`,
-          color: C.textMuted
-        }, {
-          id: "missing",
-          label: `Faltan (${missing.length})`,
-          color: C.danger
-        }, {
-          id: "naked",
-          label: `URL abierta (${naked.length})`,
-          color: C.warning
-        }, {
-          id: "good",
-          label: `Integrados (${good.length})`,
-          color: C.accent
-        }].map(tab => /*#__PURE__*/_jsx("button", {
-          onClick: () => setActiveFilter(tab.id),
-          style: {
-            background: activeFilter === tab.id ? `${tab.color}20` : "transparent",
-            border: `1px solid ${activeFilter === tab.id ? `${tab.color}40` : C.border}`,
-            color: activeFilter === tab.id ? tab.color : C.textMuted,
-            borderRadius: 6,
-            padding: "6px 14px",
-            fontSize: 11,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            fontWeight: activeFilter === tab.id ? 600 : 400,
-            transition: "all 0.15s"
-          },
-          children: tab.label
-        }, tab.id))
-      }), /*#__PURE__*/_jsxs("div", {
-        style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: 4
-        },
-        children: [filtered.map((item, i) => {
-          const sc = item.status === "good" ? C.accent : item.status === "naked" ? C.warning : C.danger;
-          return /*#__PURE__*/_jsxs("div", {
-            style: {
-              background: C.surface,
-              borderRadius: 8,
-              padding: "12px 16px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 12,
-              border: `1px solid ${C.border}`,
-              borderLeftWidth: 3,
-              borderLeftColor: sc
-            },
-            children: [/*#__PURE__*/_jsx("div", {
-              style: {
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                marginTop: 5,
-                flexShrink: 0,
-                background: sc,
-                boxShadow: `0 0 6px ${sc}40`
-              }
-            }), /*#__PURE__*/_jsxs("div", {
-              style: {
-                flex: 1,
-                minWidth: 0
-              },
-              children: [/*#__PURE__*/_jsx("div", {
-                style: {
-                  fontSize: 12,
-                  color: C.text,
-                  wordBreak: "break-all",
-                  lineHeight: 1.4
-                },
-                children: item.url
-              }), /*#__PURE__*/_jsxs("div", {
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginTop: 6
-                },
-                children: [/*#__PURE__*/_jsx("span", {
-                  style: {
-                    fontSize: 9,
-                    color: CAT_COLORS[item.category] || C.textMuted,
-                    background: `${CAT_COLORS[item.category] || C.textMuted}18`,
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    fontWeight: 600
-                  },
-                  children: item.category
-                }), item.status === "naked" && /*#__PURE__*/_jsxs("span", {
-                  style: {
-                    fontSize: 11,
-                    color: C.warning,
-                    opacity: 0.9
-                  },
-                  children: ["⚠ ", item.nakedCount, "× como URL abierta"]
-                }), item.status === "missing" && /*#__PURE__*/_jsx("span", {
-                  style: {
-                    fontSize: 11,
-                    color: C.danger,
-                    opacity: 0.8
-                  },
-                  children: "✕ No encontrado"
-                })]
-              }), item.status === "good" && item.anchorTexts.length > 0 && /*#__PURE__*/_jsx("div", {
-                style: {
-                  marginTop: 6
-                },
-                children: item.anchorTexts.map((text, j) => /*#__PURE__*/_jsxs("div", {
-                  style: {
-                    fontSize: 11,
-                    color: C.accent,
-                    opacity: 0.8,
-                    lineHeight: 1.6
-                  },
-                  children: ["→ \"", text, "\""]
-                }, j))
-              })]
-            })]
-          }, i);
-        }), filtered.length === 0 && /*#__PURE__*/_jsxs("div", {
-          style: {
-            textAlign: "center",
-            padding: 40,
-            color: C.textMuted,
-            fontSize: 12
-          },
-          children: [activeFilter === "missing" && "✦ Sin enlaces faltantes", activeFilter === "naked" && "✦ Sin URLs abiertas", activeFilter === "good" && "Ningún enlace integrado aún", activeFilter === "all" && "Pega un artículo para analizar"]
-        })]
-      }), naked.length > 0 && /*#__PURE__*/_jsxs("div", {
-        style: {
-          marginTop: 16,
-          background: C.warningDim,
-          border: "1px solid rgba(255,217,61,0.2)",
-          borderRadius: 10,
-          padding: "14px 18px",
-          fontSize: 12,
-          color: C.warning,
-          lineHeight: 1.7
-        },
-        children: [/*#__PURE__*/_jsx("strong", {
-          children: "Recordatorio:"
-        }), " Los enlaces deben integrarse de forma natural dentro del texto. Nada de link dumping ni URLs abiertas. Introduce el concepto → desarróllalo → enlaza con contexto."]
-      }), pct === 100 && naked.length === 0 && /*#__PURE__*/_jsx("div", {
-        style: {
-          marginTop: 16,
-          textAlign: "center",
-          padding: 14,
-          background: C.accentDim,
-          borderRadius: 10,
-          border: "1px solid rgba(0,212,170,0.3)",
-          fontFamily: FONT_DISPLAY,
-          fontSize: 15,
-          fontWeight: 600,
-          color: C.accent
-        },
-        children: "✦ Todos los enlaces integrados correctamente — listo para entregar"
-      })]
-    })]
-  });
-}
-
-/* ═══════════════════════════════════════════
-   APP (TAB SHELL)
-   ═══════════════════════════════════════════ */
-
-function App() {
-  const [tab, setTab] = useState("kw");
-  const tabs = [{
-    id: "kw",
-    label: "KW Checker",
-    icon: "◆"
-  }, {
-    id: "anchor",
-    label: "Anchor Links",
-    icon: "◇"
-  }];
+  }, [links, articleRaw]);
+  const good = linkResults ? linkResults.filter(r => r.status === "good") : [];
+  const naked = linkResults ? linkResults.filter(r => r.status === "naked") : [];
+  const missing = linkResults ? linkResults.filter(r => r.status === "missing") : [];
+  const linkTotal = linkResults ? linkResults.length : 0;
+  const linkPct = linkTotal ? Math.round(good.length / linkTotal * 100) : 0;
+  const filtered = linkResults ? activeFilter === "all" ? linkResults : activeFilter === "good" ? good : activeFilter === "naked" ? naked : missing : [];
+  const labelStyle = {
+    display: "block",
+    fontSize: 11,
+    fontWeight: 600,
+    color: C.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: "1.5px",
+    marginBottom: 8
+  };
+  const taStyle = {
+    width: "100%",
+    background: C.inputBg,
+    border: `1px solid ${C.border}`,
+    borderRadius: 8,
+    color: C.text,
+    fontFamily: "inherit",
+    fontSize: 12,
+    padding: "14px 16px",
+    resize: "none",
+    outline: "none",
+    lineHeight: 1.7
+  };
   return /*#__PURE__*/_jsxs("div", {
     style: {
       minHeight: "100vh",
@@ -958,80 +239,647 @@ function App() {
       color: C.text
     },
     children: [/*#__PURE__*/_jsxs("div", {
-      style: {
-        borderBottom: `1px solid ${C.border}`,
-        padding: "0 24px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
-      },
+      className: "qa-nav",
       children: [/*#__PURE__*/_jsxs("div", {
         style: {
           display: "flex",
           alignItems: "center"
         },
-        children: [/*#__PURE__*/_jsx("div", {
+        children: [/*#__PURE__*/_jsx("span", {
           style: {
-            paddingRight: 24,
-            marginRight: 2,
-            borderRight: `1px solid ${C.border}`,
-            display: "flex",
-            alignItems: "center",
-            height: 52
+            fontFamily: FONT_DISPLAY,
+            fontSize: 16,
+            fontWeight: 700,
+            color: C.accent,
+            letterSpacing: "-0.5px"
           },
-          children: /*#__PURE__*/_jsx("span", {
-            style: {
-              fontFamily: FONT_DISPLAY,
-              fontSize: 16,
-              fontWeight: 700,
-              color: C.accent,
-              letterSpacing: "-0.5px"
-            },
-            children: "Content QA"
-          })
-        }), tabs.map(t => /*#__PURE__*/_jsxs("button", {
-          onClick: () => setTab(t.id),
+          children: "Content QA"
+        }), /*#__PURE__*/_jsx("span", {
           style: {
-            background: "none",
-            border: "none",
-            borderBottom: tab === t.id ? `2px solid ${C.accent}` : "2px solid transparent",
-            color: tab === t.id ? C.accent : C.textMuted,
-            padding: "16px 20px",
-            fontSize: 12,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            fontWeight: tab === t.id ? 600 : 400,
-            letterSpacing: "0.04em",
-            transition: "all 0.15s",
-            display: "flex",
-            alignItems: "center",
-            gap: 8
+            marginLeft: 14,
+            fontSize: 11,
+            color: C.textMuted,
+            letterSpacing: "0.04em"
           },
-          children: [/*#__PURE__*/_jsx("span", {
-            style: {
-              fontSize: 10
-            },
-            children: t.icon
-          }), t.label]
-        }, t.id))]
+          children: "Keywords + Anchor Links"
+        })]
       }), /*#__PURE__*/_jsx("span", {
         style: {
           fontSize: 10,
           color: C.textMuted,
           letterSpacing: "0.06em"
         },
-        children: "v2.0"
+        children: "v3.0"
       })]
-    }), /*#__PURE__*/_jsx("div", {
+    }), /*#__PURE__*/_jsxs("div", {
       style: {
-        display: tab === "kw" ? "block" : "none"
+        padding: 24,
+        maxWidth: 1400,
+        margin: "0 auto"
       },
-      children: /*#__PURE__*/_jsx(KWChecker, {})
-    }), /*#__PURE__*/_jsx("div", {
-      style: {
-        display: tab === "anchor" ? "block" : "none"
-      },
-      children: /*#__PURE__*/_jsx(AnchorChecker, {})
+      children: [/*#__PURE__*/_jsxs("div", {
+        className: "qa-inputs",
+        children: [/*#__PURE__*/_jsxs("div", {
+          className: "qa-sidebar",
+          children: [/*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsxs("label", {
+              style: labelStyle,
+              children: ["Keywords del cliente", keywords.length > 0 && /*#__PURE__*/_jsx("span", {
+                style: {
+                  color: C.accent,
+                  marginLeft: 8,
+                  textTransform: "none",
+                  letterSpacing: 0
+                },
+                children: keywords.length
+              })]
+            }), /*#__PURE__*/_jsx("textarea", {
+              value: kwInput,
+              onChange: e => setKwInput(e.target.value),
+              placeholder: "una keyword por línea\nmejores casinos online\ntragamonedas gratis...",
+              spellCheck: false,
+              style: {
+                ...taStyle,
+                height: 200,
+                fontSize: 13,
+                lineHeight: 1.7
+              }
+            })]
+          }), /*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsxs("label", {
+              style: labelStyle,
+              children: ["Enlaces requeridos", links.length > 0 && /*#__PURE__*/_jsx("span", {
+                style: {
+                  color: C.accent,
+                  marginLeft: 8,
+                  textTransform: "none",
+                  letterSpacing: 0
+                },
+                children: links.length
+              })]
+            }), /*#__PURE__*/_jsx("textarea", {
+              value: linksInput,
+              onChange: e => setLinksInput(e.target.value),
+              placeholder: "un enlace por línea\nhttps://stake.pe/bienvenida...",
+              spellCheck: false,
+              style: {
+                ...taStyle,
+                height: 320
+              }
+            })]
+          })]
+        }), /*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsxs("div", {
+            style: {
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8
+            },
+            children: [/*#__PURE__*/_jsxs("label", {
+              style: {
+                ...labelStyle,
+                marginBottom: 0
+              },
+              children: ["Artículo", pasteMode && /*#__PURE__*/_jsx("span", {
+                style: {
+                  textTransform: "none",
+                  letterSpacing: 0,
+                  fontWeight: 400,
+                  fontSize: 10,
+                  marginLeft: 8,
+                  color: pasteMode === "rich" ? C.accent : C.textMuted
+                },
+                children: pasteMode === "rich" ? "✦ HTML con links detectado" : "texto plano"
+              })]
+            }), articleRaw && /*#__PURE__*/_jsx("button", {
+              onClick: handleClear,
+              style: {
+                background: "transparent",
+                border: `1px solid ${C.border}`,
+                color: C.textMuted,
+                borderRadius: 6,
+                padding: "4px 10px",
+                fontSize: 11,
+                cursor: "pointer",
+                fontFamily: "inherit"
+              },
+              children: "limpiar"
+            })]
+          }), /*#__PURE__*/_jsx("div", {
+            ref: editorRef,
+            contentEditable: "true",
+            onPaste: handlePaste,
+            onInput: handleInput,
+            suppressContentEditableWarning: true,
+            "data-placeholder": "Pega aquí desde Google Docs — los anchor links se capturan automáticamente",
+            style: {
+              width: "100%",
+              minHeight: 552,
+              background: C.inputBg,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              color: C.text,
+              fontFamily: "inherit",
+              fontSize: 13,
+              padding: "14px 16px",
+              overflowY: "auto",
+              lineHeight: 1.8,
+              outline: "none",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word"
+            }
+          })]
+        })]
+      }), kwResults && /*#__PURE__*/_jsxs("div", {
+        style: {
+          marginTop: 28
+        },
+        children: [/*#__PURE__*/_jsxs("div", {
+          style: {
+            fontFamily: FONT_DISPLAY,
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.text,
+            letterSpacing: "0.04em",
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 8
+          },
+          children: [/*#__PURE__*/_jsx("span", {
+            style: {
+              color: C.accent
+            },
+            children: "◆"
+          }), " Cobertura de keywords"]
+        }), /*#__PURE__*/_jsxs("div", {
+          style: {
+            background: C.surface,
+            borderRadius: 10,
+            padding: "16px 20px",
+            marginBottom: 16,
+            border: `1px solid ${C.border}`
+          },
+          children: [/*#__PURE__*/_jsxs("div", {
+            style: {
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 10,
+              flexWrap: "wrap",
+              gap: 10
+            },
+            children: [/*#__PURE__*/_jsxs("div", {
+              style: {
+                display: "flex",
+                gap: 24,
+                fontSize: 13
+              },
+              children: [/*#__PURE__*/_jsxs("span", {
+                children: [/*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.accent,
+                    fontWeight: 700,
+                    fontSize: 20
+                  },
+                  children: kwFound.length
+                }), /*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.textMuted,
+                    marginLeft: 6
+                  },
+                  children: "encontradas"
+                })]
+              }), /*#__PURE__*/_jsxs("span", {
+                children: [/*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: kwMissing.length > 0 ? C.danger : C.accent,
+                    fontWeight: 700,
+                    fontSize: 20
+                  },
+                  children: kwMissing.length
+                }), /*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.textMuted,
+                    marginLeft: 6
+                  },
+                  children: "faltan"
+                })]
+              })]
+            }), /*#__PURE__*/_jsxs("span", {
+              style: {
+                fontFamily: FONT_DISPLAY,
+                fontSize: 28,
+                fontWeight: 700,
+                color: kwPct === 100 ? C.accent : kwPct > 70 ? C.warning : C.danger
+              },
+              children: [kwPct, "%"]
+            })]
+          }), /*#__PURE__*/_jsx("div", {
+            style: {
+              height: 6,
+              background: C.inputBg,
+              borderRadius: 3,
+              overflow: "hidden"
+            },
+            children: /*#__PURE__*/_jsx("div", {
+              style: {
+                height: "100%",
+                width: `${kwPct}%`,
+                background: kwPct === 100 ? C.accent : kwPct > 70 ? C.warning : C.danger,
+                borderRadius: 3,
+                transition: "width 0.4s ease"
+              }
+            })
+          })]
+        }), /*#__PURE__*/_jsxs("div", {
+          className: "qa-two-col",
+          children: [kwMissing.length > 0 && /*#__PURE__*/_jsxs("div", {
+            style: {
+              background: C.dangerDim,
+              border: "1px solid rgba(255,107,107,0.25)",
+              borderRadius: 10,
+              padding: "16px 20px"
+            },
+            children: [/*#__PURE__*/_jsx("div", {
+              style: {
+                fontSize: 11,
+                fontWeight: 600,
+                color: C.danger,
+                textTransform: "uppercase",
+                letterSpacing: "1.5px",
+                marginBottom: 12
+              },
+              children: "✕ Faltan"
+            }), kwMissing.map((r, i) => /*#__PURE__*/_jsx("div", {
+              style: {
+                padding: "6px 0",
+                borderBottom: i < kwMissing.length - 1 ? "1px solid rgba(255,107,107,0.1)" : "none",
+                fontSize: 13,
+                color: "#FFB4B4"
+              },
+              children: r.kw
+            }, i))]
+          }), /*#__PURE__*/_jsxs("div", {
+            style: {
+              background: C.accentDim,
+              border: "1px solid rgba(0,212,170,0.2)",
+              borderRadius: 10,
+              padding: "16px 20px"
+            },
+            children: [/*#__PURE__*/_jsx("div", {
+              style: {
+                fontSize: 11,
+                fontWeight: 600,
+                color: C.accent,
+                textTransform: "uppercase",
+                letterSpacing: "1.5px",
+                marginBottom: 12
+              },
+              children: "✓ Encontradas"
+            }), kwFound.map((r, i) => /*#__PURE__*/_jsx("div", {
+              style: {
+                padding: "6px 0",
+                borderBottom: i < kwFound.length - 1 ? "1px solid rgba(0,212,170,0.08)" : "none",
+                fontSize: 13,
+                color: "rgba(0,212,170,0.8)"
+              },
+              children: r.kw
+            }, i)), kwFound.length === 0 && /*#__PURE__*/_jsx("div", {
+              style: {
+                color: C.textMuted,
+                fontSize: 12,
+                fontStyle: "italic"
+              },
+              children: "Ninguna keyword encontrada aún"
+            })]
+          })]
+        }), kwPct === 100 && /*#__PURE__*/_jsx("div", {
+          style: {
+            marginTop: 16,
+            textAlign: "center",
+            padding: 14,
+            background: C.accentDim,
+            borderRadius: 10,
+            border: "1px solid rgba(0,212,170,0.3)",
+            fontFamily: FONT_DISPLAY,
+            fontSize: 15,
+            fontWeight: 600,
+            color: C.accent
+          },
+          children: "✦ Todas las keywords cubiertas"
+        })]
+      }), linkResults && /*#__PURE__*/_jsxs("div", {
+        style: {
+          marginTop: 28
+        },
+        children: [/*#__PURE__*/_jsxs("div", {
+          style: {
+            fontFamily: FONT_DISPLAY,
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.text,
+            letterSpacing: "0.04em",
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 8
+          },
+          children: [/*#__PURE__*/_jsx("span", {
+            style: {
+              color: C.accent
+            },
+            children: "◇"
+          }), " Anchor links"]
+        }), /*#__PURE__*/_jsxs("div", {
+          style: {
+            background: C.surface,
+            borderRadius: 10,
+            padding: "16px 20px",
+            marginBottom: 16,
+            border: `1px solid ${C.border}`
+          },
+          children: [/*#__PURE__*/_jsxs("div", {
+            style: {
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 10,
+              flexWrap: "wrap",
+              gap: 10
+            },
+            children: [/*#__PURE__*/_jsxs("div", {
+              style: {
+                display: "flex",
+                gap: 24,
+                fontSize: 13,
+                flexWrap: "wrap"
+              },
+              children: [/*#__PURE__*/_jsxs("span", {
+                children: [/*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.accent,
+                    fontWeight: 700,
+                    fontSize: 20
+                  },
+                  children: good.length
+                }), /*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.textMuted,
+                    marginLeft: 6
+                  },
+                  children: "integrados"
+                })]
+              }), /*#__PURE__*/_jsxs("span", {
+                children: [/*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.warning,
+                    fontWeight: 700,
+                    fontSize: 20
+                  },
+                  children: naked.length
+                }), /*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.textMuted,
+                    marginLeft: 6
+                  },
+                  children: "URL abierta"
+                })]
+              }), /*#__PURE__*/_jsxs("span", {
+                children: [/*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: missing.length > 0 ? C.danger : C.accent,
+                    fontWeight: 700,
+                    fontSize: 20
+                  },
+                  children: missing.length
+                }), /*#__PURE__*/_jsx("span", {
+                  style: {
+                    color: C.textMuted,
+                    marginLeft: 6
+                  },
+                  children: "faltan"
+                })]
+              })]
+            }), /*#__PURE__*/_jsxs("span", {
+              style: {
+                fontFamily: FONT_DISPLAY,
+                fontSize: 28,
+                fontWeight: 700,
+                color: linkPct === 100 ? C.accent : linkPct > 70 ? C.warning : C.danger
+              },
+              children: [linkPct, "%"]
+            })]
+          }), /*#__PURE__*/_jsxs("div", {
+            style: {
+              height: 6,
+              background: C.inputBg,
+              borderRadius: 3,
+              overflow: "hidden",
+              display: "flex"
+            },
+            children: [/*#__PURE__*/_jsx("div", {
+              style: {
+                width: `${good.length / linkTotal * 100}%`,
+                background: C.accent,
+                transition: "width 0.4s"
+              }
+            }), /*#__PURE__*/_jsx("div", {
+              style: {
+                width: `${naked.length / linkTotal * 100}%`,
+                background: C.warning,
+                transition: "width 0.4s"
+              }
+            }), /*#__PURE__*/_jsx("div", {
+              style: {
+                width: `${missing.length / linkTotal * 100}%`,
+                background: C.danger,
+                transition: "width 0.4s"
+              }
+            })]
+          })]
+        }), /*#__PURE__*/_jsx("div", {
+          style: {
+            display: "flex",
+            gap: 4,
+            marginBottom: 16,
+            flexWrap: "wrap"
+          },
+          children: [{
+            id: "all",
+            label: `Todos (${linkTotal})`,
+            color: C.textMuted
+          }, {
+            id: "missing",
+            label: `Faltan (${missing.length})`,
+            color: C.danger
+          }, {
+            id: "naked",
+            label: `URL abierta (${naked.length})`,
+            color: C.warning
+          }, {
+            id: "good",
+            label: `Integrados (${good.length})`,
+            color: C.accent
+          }].map(tab => /*#__PURE__*/_jsx("button", {
+            onClick: () => setActiveFilter(tab.id),
+            style: {
+              background: activeFilter === tab.id ? `${tab.color}20` : "transparent",
+              border: `1px solid ${activeFilter === tab.id ? `${tab.color}40` : C.border}`,
+              color: activeFilter === tab.id ? tab.color : C.textMuted,
+              borderRadius: 6,
+              padding: "6px 14px",
+              fontSize: 11,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontWeight: activeFilter === tab.id ? 600 : 400,
+              transition: "all 0.15s"
+            },
+            children: tab.label
+          }, tab.id))
+        }), /*#__PURE__*/_jsxs("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 4
+          },
+          children: [filtered.map((item, i) => {
+            const sc = item.status === "good" ? C.accent : item.status === "naked" ? C.warning : C.danger;
+            return /*#__PURE__*/_jsxs("div", {
+              style: {
+                background: C.surface,
+                borderRadius: 8,
+                padding: "12px 16px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 12,
+                border: `1px solid ${C.border}`,
+                borderLeftWidth: 3,
+                borderLeftColor: sc
+              },
+              children: [/*#__PURE__*/_jsx("div", {
+                style: {
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  marginTop: 5,
+                  flexShrink: 0,
+                  background: sc,
+                  boxShadow: `0 0 6px ${sc}40`
+                }
+              }), /*#__PURE__*/_jsxs("div", {
+                style: {
+                  flex: 1,
+                  minWidth: 0
+                },
+                children: [/*#__PURE__*/_jsx("div", {
+                  style: {
+                    fontSize: 12,
+                    color: C.text,
+                    wordBreak: "break-all",
+                    lineHeight: 1.4
+                  },
+                  children: item.url
+                }), /*#__PURE__*/_jsxs("div", {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginTop: 6,
+                    flexWrap: "wrap"
+                  },
+                  children: [/*#__PURE__*/_jsx("span", {
+                    style: {
+                      fontSize: 9,
+                      color: CAT_COLORS[item.category] || C.textMuted,
+                      background: `${CAT_COLORS[item.category] || C.textMuted}18`,
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      fontWeight: 600
+                    },
+                    children: item.category
+                  }), item.status === "naked" && /*#__PURE__*/_jsxs("span", {
+                    style: {
+                      fontSize: 11,
+                      color: C.warning,
+                      opacity: 0.9
+                    },
+                    children: ["⚠ ", item.nakedCount, "× como URL abierta"]
+                  }), item.status === "missing" && /*#__PURE__*/_jsx("span", {
+                    style: {
+                      fontSize: 11,
+                      color: C.danger,
+                      opacity: 0.8
+                    },
+                    children: "✕ No encontrado"
+                  })]
+                }), item.status === "good" && item.anchorTexts.length > 0 && /*#__PURE__*/_jsx("div", {
+                  style: {
+                    marginTop: 6
+                  },
+                  children: item.anchorTexts.map((text, j) => /*#__PURE__*/_jsxs("div", {
+                    style: {
+                      fontSize: 11,
+                      color: C.accent,
+                      opacity: 0.8,
+                      lineHeight: 1.6
+                    },
+                    children: ["→ \"", text, "\""]
+                  }, j))
+                })]
+              })]
+            }, i);
+          }), filtered.length === 0 && /*#__PURE__*/_jsxs("div", {
+            style: {
+              textAlign: "center",
+              padding: 40,
+              color: C.textMuted,
+              fontSize: 12
+            },
+            children: [activeFilter === "missing" && "✦ Sin enlaces faltantes", activeFilter === "naked" && "✦ Sin URLs abiertas", activeFilter === "good" && "Ningún enlace integrado aún", activeFilter === "all" && "Pega un artículo para analizar"]
+          })]
+        }), naked.length > 0 && /*#__PURE__*/_jsxs("div", {
+          style: {
+            marginTop: 16,
+            background: C.warningDim,
+            border: "1px solid rgba(255,217,61,0.2)",
+            borderRadius: 10,
+            padding: "14px 18px",
+            fontSize: 12,
+            color: C.warning,
+            lineHeight: 1.7
+          },
+          children: [/*#__PURE__*/_jsx("strong", {
+            children: "Recordatorio:"
+          }), " Los enlaces deben integrarse de forma natural dentro del texto. Nada de link dumping ni URLs abiertas. Introduce el concepto → desarróllalo → enlaza con contexto."]
+        }), linkPct === 100 && naked.length === 0 && /*#__PURE__*/_jsx("div", {
+          style: {
+            marginTop: 16,
+            textAlign: "center",
+            padding: 14,
+            background: C.accentDim,
+            borderRadius: 10,
+            border: "1px solid rgba(0,212,170,0.3)",
+            fontFamily: FONT_DISPLAY,
+            fontSize: 15,
+            fontWeight: 600,
+            color: C.accent
+          },
+          children: "✦ Todos los enlaces integrados correctamente — listo para entregar"
+        })]
+      }), !kwResults && !linkResults && /*#__PURE__*/_jsx("div", {
+        style: {
+          textAlign: "center",
+          padding: "48px 24px",
+          color: C.textMuted,
+          fontSize: 13,
+          lineHeight: 1.8
+        },
+        children: "Pega el artículo y añade keywords y/o enlaces para ver los chequeos."
+      })]
     })]
   });
 }
