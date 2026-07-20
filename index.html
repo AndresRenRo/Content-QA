@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Content QA — Keywords + Anchor Links</title>
+  <title>Content QA — Keywords + Links + Duplicados</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -14,10 +14,13 @@
     .qa-inputs { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
     .qa-sidebar { display: flex; flex-direction: column; gap: 16px; }
     .qa-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .dup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .dup-pair { display: grid; grid-template-columns: 1fr 1fr; }
+    .qa-tabs { display: flex; gap: 4px; }
     @media (max-width: 1024px) { .qa-inputs { grid-template-columns: 280px 1fr; } }
-    @media (max-width: 768px)  { .qa-inputs { grid-template-columns: 1fr; } }
-    @media (max-width: 600px)  { .qa-two-col { grid-template-columns: 1fr; } }
-    @media (max-width: 380px)  { .qa-nav { padding: 0 14px; } .qa-inputs { gap: 12px; } }
+    @media (max-width: 768px)  { .qa-inputs { grid-template-columns: 1fr; } .dup-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 600px)  { .qa-two-col { grid-template-columns: 1fr; } .dup-pair { grid-template-columns: 1fr; } .qa-nav { height: auto; min-height: 52px; flex-wrap: wrap; padding: 8px 16px; gap: 8px; } }
+    @media (max-width: 380px)  { .qa-nav { padding: 8px 12px; } .qa-inputs { gap: 12px; } .qa-tabs button { padding: 5px 10px !important; font-size: 10px !important; } }
   </style>
 </head>
 <body>
@@ -394,8 +397,8 @@ https://stake.pe/casino/proveedor-juegos/evolution-first-person
 https://stake.pe/casino/proveedor-juegos/red-tiger
 https://stake.pe/casino/proveedor-juegos/amusnet`;
 
-/* ═══════════ APP ═══════════ */
-function App() {
+/* ═══════════ TAB 1: KEYWORDS + LINKS ═══════════ */
+function QATool() {
   const [kwInput, setKwInput] = useState("");
   const [linksInput, setLinksInput] = useState(DEFAULT_LINKS);
   const [articleRaw, setArticleRaw] = useState(""); // HTML o texto plano -> matching de enlaces
@@ -511,41 +514,6 @@ function App() {
     lineHeight: 1.7
   };
   return /*#__PURE__*/React.createElement("div", {
-    style: {
-      minHeight: "100vh",
-      background: C.bg,
-      fontFamily: FONT,
-      color: C.text
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "qa-nav"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: FONT_DISPLAY,
-      fontSize: 16,
-      fontWeight: 700,
-      color: C.accent,
-      letterSpacing: "-0.5px"
-    }
-  }, "Content QA"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      marginLeft: 14,
-      fontSize: 11,
-      color: C.textMuted,
-      letterSpacing: "0.04em"
-    }
-  }, "Keywords + Anchor Links")), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10,
-      color: C.textMuted,
-      letterSpacing: "0.06em"
-    }
-  }, "v3.0")), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 24,
       maxWidth: 1400,
@@ -1079,8 +1047,391 @@ function App() {
       fontSize: 13,
       lineHeight: 1.8
     }
-  }, "Pega el artículo y añade keywords y/o enlaces para ver los chequeos.")));
+  }, "Pega el artículo y añade keywords y/o enlaces para ver los chequeos."));
 }
+/* ═══════════ TAB 2: DUPLICADOS ═══════════ */
+const h = React.createElement;
+
+function dupNorm(s) {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300\u0301\u0302\u0303\u0304\u0306\u0307\u0308\u030a\u030b\u030c\u0327\u0328]/g, "").replace(/[^a-z0-9\u00f1\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+function dupWords(s) {
+  const n = dupNorm(s);
+  return n ? n.split(" ") : [];
+}
+function dupBigrams(ws) {
+  const r = [];
+  for (let i = 0; i < ws.length - 1; i++) r.push(ws[i] + " " + ws[i + 1]);
+  return r;
+}
+function dupSimilarity(a, b) {
+  const na = dupNorm(a), nb = dupNorm(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  const wa = dupWords(a), wb = dupWords(b);
+  const A = wa.length > 1 ? dupBigrams(wa) : wa;
+  const B = wb.length > 1 ? dupBigrams(wb) : wb;
+  const counts = new Map();
+  B.forEach(x => counts.set(x, (counts.get(x) || 0) + 1));
+  let inter = 0;
+  A.forEach(x => {
+    const c = counts.get(x);
+    if (c > 0) { inter++; counts.set(x, c - 1); }
+  });
+  return 2 * inter / (A.length + B.length);
+}
+function splitParas(text) {
+  return text.split(/\n+/).map(p => p.trim()).filter(p => p.length >= 15);
+}
+/* LCS sobre palabras normalizadas: marca qué palabras de cada lado están compartidas */
+function lcsMask(na, nb) {
+  const n = na.length, m = nb.length;
+  const maskA = new Array(n).fill(false);
+  const maskB = new Array(m).fill(false);
+  if (n === 0 || m === 0 || n * m > 300000) return [maskA, maskB];
+  const dp = [];
+  for (let i = 0; i <= n; i++) dp.push(new Int16Array(m + 1));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = na[i - 1] === nb[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  let i = n, j = m;
+  while (i > 0 && j > 0) {
+    if (na[i - 1] === nb[j - 1]) { maskA[i - 1] = true; maskB[j - 1] = true; i--; j--; }
+    else if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+    else j--;
+  }
+  return [maskA, maskB];
+}
+function HighlightedPara({ tokens, mask, color }) {
+  return h("div", {
+    style: { fontSize: 12.5, lineHeight: 1.8, color: C.text, wordBreak: "break-word" }
+  }, tokens.map((w, i) => h("span", {
+    key: i,
+    style: mask[i] ? {
+      background: `${color}26`,
+      color: color,
+      borderRadius: 3,
+      padding: "1px 2px"
+    } : { opacity: 0.55 }
+  }, w, i < tokens.length - 1 ? " " : "")));
+}
+function MatchCard({ m }) {
+  const identical = m.sim >= 0.995;
+  const pct = Math.round(m.sim * 100);
+  const color = identical ? C.danger : m.sim >= 0.8 ? C.warning : "#60a5fa";
+  const label = identical ? "IDÉNTICO" : m.sim >= 0.8 ? "MUY SIMILAR" : "SIMILAR";
+  const ta = m.a.split(/\s+/).filter(Boolean);
+  const tb = m.b.split(/\s+/).filter(Boolean);
+  let maskA, maskB;
+  if (identical) {
+    maskA = ta.map(() => true);
+    maskB = tb.map(() => true);
+  } else {
+    const res = lcsMask(ta.map(dupNorm), tb.map(dupNorm));
+    maskA = res[0];
+    maskB = res[1];
+  }
+  return h("div", {
+    style: {
+      background: C.surface,
+      border: `1px solid ${C.border}`,
+      borderLeftWidth: 3,
+      borderLeftColor: color,
+      borderRadius: 10,
+      overflow: "hidden"
+    }
+  },
+    h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 16px",
+        borderBottom: `1px solid ${C.border}`,
+        flexWrap: "wrap"
+      }
+    },
+      h("span", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: color,
+          background: `${color}18`,
+          padding: "3px 9px",
+          borderRadius: 4,
+          letterSpacing: "0.08em"
+        }
+      }, label),
+      h("span", {
+        style: { fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, color: color }
+      }, pct, "%"),
+      h("span", {
+        style: { fontSize: 10, color: C.textMuted, marginLeft: "auto" }
+      }, "A ¶", m.ia + 1, " ↔ B ¶", m.ib + 1)
+    ),
+    h("div", { className: "dup-pair" },
+      h("div", {
+        style: { padding: "14px 16px", borderRight: `1px solid ${C.border}` }
+      },
+        h("div", {
+          style: { fontSize: 9, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8 }
+        }, "Artículo A · ¶", m.ia + 1),
+        h(HighlightedPara, { tokens: ta, mask: maskA, color })
+      ),
+      h("div", {
+        style: { padding: "14px 16px" }
+      },
+        h("div", {
+          style: { fontSize: 9, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8 }
+        }, "Artículo B · ¶", m.ib + 1),
+        h(HighlightedPara, { tokens: tb, mask: maskB, color })
+      )
+    )
+  );
+}
+function DupeTool() {
+  const [textA, setTextA] = useState("");
+  const [textB, setTextB] = useState("");
+  const [threshold, setThreshold] = useState(60);
+  const parasA = useMemo(() => splitParas(textA), [textA]);
+  const parasB = useMemo(() => splitParas(textB), [textB]);
+  const matches = useMemo(() => {
+    if (!parasA.length || !parasB.length) return null;
+    const th = threshold / 100;
+    const out = [];
+    parasA.forEach((pa, ia) => {
+      let best = -1, bestSim = 0;
+      parasB.forEach((pb, ib) => {
+        const s = dupSimilarity(pa, pb);
+        if (s > bestSim) { bestSim = s; best = ib; }
+      });
+      if (best >= 0 && bestSim >= th) out.push({ ia, ib: best, sim: bestSim, a: pa, b: parasB[best] });
+    });
+    out.sort((x, y) => y.sim - x.sim);
+    return out;
+  }, [parasA, parasB, threshold]);
+  const identicalCount = matches ? matches.filter(m => m.sim >= 0.995).length : 0;
+  const similarCount = matches ? matches.length - identicalCount : 0;
+  const dupPct = matches && parasA.length ? Math.round(matches.length / parasA.length * 100) : 0;
+  const overallColor = dupPct === 0 ? C.accent : dupPct < 20 ? C.warning : C.danger;
+  const labelStyle = {
+    display: "block",
+    fontSize: 11,
+    fontWeight: 600,
+    color: C.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: "1.5px",
+    marginBottom: 8
+  };
+  const taStyle = {
+    width: "100%",
+    background: C.inputBg,
+    border: `1px solid ${C.border}`,
+    borderRadius: 8,
+    color: C.text,
+    fontFamily: "inherit",
+    fontSize: 12.5,
+    padding: "14px 16px",
+    resize: "vertical",
+    outline: "none",
+    lineHeight: 1.7,
+    height: 340,
+    minHeight: 180
+  };
+  return h("div", {
+    style: { padding: 24, maxWidth: 1400, margin: "0 auto" }
+  },
+    h("div", { className: "dup-grid" },
+      h("div", null,
+        h("label", { style: labelStyle }, "Artículo A",
+          parasA.length > 0 && h("span", {
+            style: { color: C.accent, marginLeft: 8, textTransform: "none", letterSpacing: 0 }
+          }, parasA.length, " ¶")
+        ),
+        h("textarea", {
+          value: textA,
+          onChange: e => setTextA(e.target.value),
+          placeholder: "Pega aquí el primer artículo (texto plano, un párrafo por línea o separados por líneas en blanco)",
+          spellCheck: false,
+          style: taStyle
+        })
+      ),
+      h("div", null,
+        h("label", { style: labelStyle }, "Artículo B",
+          parasB.length > 0 && h("span", {
+            style: { color: C.accent, marginLeft: 8, textTransform: "none", letterSpacing: 0 }
+          }, parasB.length, " ¶")
+        ),
+        h("textarea", {
+          value: textB,
+          onChange: e => setTextB(e.target.value),
+          placeholder: "Pega aquí el segundo artículo para comparar contra el primero",
+          spellCheck: false,
+          style: taStyle
+        })
+      )
+    ),
+    h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        marginTop: 18,
+        flexWrap: "wrap"
+      }
+    },
+      h("span", {
+        style: { fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "1.5px" }
+      }, "Umbral de similitud"),
+      h("input", {
+        type: "range",
+        min: 30,
+        max: 100,
+        step: 5,
+        value: threshold,
+        onChange: e => setThreshold(Number(e.target.value)),
+        style: { width: 180, accentColor: C.accent }
+      }),
+      h("span", {
+        style: { fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, color: C.accent, minWidth: 44 }
+      }, threshold, "%"),
+      h("span", {
+        style: { fontSize: 10, color: C.textMuted }
+      }, "solo se reportan pares de párrafos con similitud ≥ umbral")
+    ),
+    matches && h("div", { style: { marginTop: 24 } },
+      h("div", {
+        style: {
+          fontFamily: FONT_DISPLAY,
+          fontSize: 13,
+          fontWeight: 600,
+          color: C.text,
+          letterSpacing: "0.04em",
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 8
+        }
+      }, h("span", { style: { color: C.accent } }, "▣"), " Comparación de párrafos"),
+      h("div", {
+        style: {
+          background: C.surface,
+          borderRadius: 10,
+          padding: "16px 20px",
+          marginBottom: 16,
+          border: `1px solid ${C.border}`,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12
+        }
+      },
+        h("div", { style: { display: "flex", gap: 24, fontSize: 13, flexWrap: "wrap" } },
+          h("span", null,
+            h("span", { style: { color: identicalCount > 0 ? C.danger : C.accent, fontWeight: 700, fontSize: 20 } }, identicalCount),
+            h("span", { style: { color: C.textMuted, marginLeft: 6 } }, "idénticos")
+          ),
+          h("span", null,
+            h("span", { style: { color: similarCount > 0 ? C.warning : C.accent, fontWeight: 700, fontSize: 20 } }, similarCount),
+            h("span", { style: { color: C.textMuted, marginLeft: 6 } }, "similares")
+          ),
+          h("span", null,
+            h("span", { style: { color: C.textMuted, fontWeight: 700, fontSize: 20 } }, parasA.length, "/", parasB.length),
+            h("span", { style: { color: C.textMuted, marginLeft: 6 } }, "¶ A/B")
+          )
+        ),
+        h("div", { style: { textAlign: "right" } },
+          h("span", {
+            style: { fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: overallColor }
+          }, dupPct, "%"),
+          h("div", { style: { fontSize: 10, color: C.textMuted } }, "de A con match en B")
+        )
+      ),
+      matches.length === 0 && h("div", {
+        style: {
+          textAlign: "center",
+          padding: 32,
+          background: C.accentDim,
+          borderRadius: 10,
+          border: "1px solid rgba(0,212,170,0.3)",
+          fontFamily: FONT_DISPLAY,
+          fontSize: 15,
+          fontWeight: 600,
+          color: C.accent
+        }
+      }, "✦ Sin párrafos duplicados por encima del umbral — contenido original"),
+      matches.length > 0 && h("div", {
+        style: { display: "flex", flexDirection: "column", gap: 12 }
+      }, matches.map((m, i) => h(MatchCard, { key: i, m }))),
+      matches.length > 0 && h("div", {
+        style: {
+          marginTop: 16,
+          background: C.warningDim,
+          border: "1px solid rgba(255,217,61,0.2)",
+          borderRadius: 10,
+          padding: "14px 18px",
+          fontSize: 12,
+          color: C.warning,
+          lineHeight: 1.7
+        }
+      }, h("strong", null, "Cómo leerlo:"), " las palabras resaltadas son las compartidas entre ambos párrafos, las atenuadas son texto único de cada lado. Rojo = copia idéntica, amarillo = paráfrasis cercana, azul = coincidencia parcial.")
+    ),
+    !matches && h("div", {
+      style: {
+        textAlign: "center",
+        padding: "48px 24px",
+        color: C.textMuted,
+        fontSize: 13,
+        lineHeight: 1.8
+      }
+    }, "Pega los dos artículos para detectar párrafos idénticos o similares entre ambos.")
+  );
+}
+
+/* ═══════════ APP SHELL CON TABS ═══════════ */
+function App() {
+  const [tab, setTab] = useState("qa");
+  const tabs = [
+    { id: "qa", label: "Keywords + Links" },
+    { id: "dup", label: "Duplicados" }
+  ];
+  return h("div", {
+    style: { minHeight: "100vh", background: C.bg, fontFamily: FONT, color: C.text }
+  },
+    h("div", { className: "qa-nav" },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" } },
+        h("span", {
+          style: { fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: C.accent, letterSpacing: "-0.5px" }
+        }, "Content QA"),
+        h("div", { className: "qa-tabs" }, tabs.map(t => h("button", {
+          key: t.id,
+          onClick: () => setTab(t.id),
+          style: {
+            background: tab === t.id ? C.accentDim : "transparent",
+            border: `1px solid ${tab === t.id ? "rgba(0,212,170,0.4)" : C.border}`,
+            color: tab === t.id ? C.accent : C.textMuted,
+            borderRadius: 6,
+            padding: "6px 14px",
+            fontSize: 11,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontWeight: tab === t.id ? 600 : 400,
+            transition: "all 0.15s"
+          }
+        }, t.label)))
+      ),
+      h("span", {
+        style: { fontSize: 10, color: C.textMuted, letterSpacing: "0.06em" }
+      }, "v4.0")
+    ),
+    h("div", { style: { display: tab === "qa" ? "block" : "none" } }, h(QATool)),
+    h("div", { style: { display: tab === "dup" ? "block" : "none" } }, h(DupeTool))
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
   </script>
 </body>
